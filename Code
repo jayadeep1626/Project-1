@@ -1,0 +1,90 @@
+pipeline {
+    agent any
+
+    environment {
+        SONARQUBE_URL = 'http://your-sonarqube-server:9000'
+        TRIVY_IMAGE = 'your-web-app:latest'
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', credentialsId: 'your-credentials-id', url: 'https://github.com/your-repo.git'
+            }
+        }
+
+        stage('Static Code Analysis (SAST)') {
+            steps {
+                script {
+                    sh 'sonar-scanner -Dsonar.projectKey=YourProject -Dsonar.host.url=$SONARQUBE_URL'
+                }
+            }
+        }
+
+        stage('Dependency Scanning') {
+            steps {
+                script {
+                    sh 'dependency-check --project YourProject --scan . --format HTML'
+                }
+            }
+        }
+
+        stage('Build Application') {
+            steps {
+                sh 'mvn clean install' // Java Build
+                // sh 'npm install && npm run build' // Node.js Build
+            }
+        }
+
+        stage('Container Build & Scan') {
+            steps {
+                script {
+                    sh 'docker build -t $TRIVY_IMAGE .'
+                    sh 'trivy image $TRIVY_IMAGE --exit-code 1 || echo "Vulnerabilities detected!"'
+                }
+            }
+        }
+
+        stage('Unit Testing') {
+            steps {
+                sh 'mvn test' // Java Tests
+                // sh 'npm test' // Node.js Tests
+            }
+        }
+
+        stage('Deploy to Staging') {
+            steps {
+                sh 'kubectl apply -f deployment.yaml'
+            }
+        }
+
+        stage('Security Testing (DAST)') {
+            steps {
+                script {
+                    sh 'zap-cli quick-scan http://staging.yourapp.com'
+                }
+            }
+        }
+
+        stage('Approval for Production') {
+            steps {
+                input 'Deploy to Production?'
+            }
+        }
+
+        stage('Deploy to Production') {
+            steps {
+                sh 'kubectl apply -f production.yaml'
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'dependency-check-report.html', fingerprint: true
+        }
+        failure {
+            mail to: 'security-team@example.com', subject: 'Build Failed!', body: 'Check Jenkins for logs.'
+        }
+    }
+}
